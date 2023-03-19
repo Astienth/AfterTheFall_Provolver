@@ -1,27 +1,29 @@
-﻿using HarmonyLib;
-using MelonLoader;
-using System;
-using Newtonsoft.Json;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Threading;
+using BepInEx;
+using BepInEx.Logging;
+using HarmonyLib;
+using Newtonsoft.Json;
+using Vertigo.Snowbreed.Client;
 
-namespace Provolver_SuperHot
+namespace AfterTheFall_Provolver
 {
-    public class AfterTheFall_Provolver : MelonMod
+    [BepInPlugin("org.bepinex.plugins.AfterTheFall_Provolver", "AfterTheFall_Provolver integration", "1.0")]
+    public class AfterTheFall_Provolver : BepInEx.IL2CPP.BasePlugin
     {
-        public static string configPath = Directory.GetCurrentDirectory() + "\\Mods\\dualwield\\";
+        public static string configPath = Directory.GetCurrentDirectory() + "\\BepInEx\\plugins\\Provolver";
         public static bool dualWield = false;
-        private MelonPreferences_Category config;
-        public static bool leftHanded = false;
+        internal static new ManualLogSource Log;
 
-        public override void OnApplicationStart()
+        public override void Load()
         {
-            config = MelonPreferences.CreateCategory("provolver");
-            config.CreateEntry<bool>("leftHanded", false);
-            config.SetFilePath("Mods/Provolver/Provolver_config.cfg");
-            leftHanded = bool.Parse(config.GetEntry("leftHanded").GetValueAsString());
+            Log = base.Log;
             InitializeProTube();
+            // patch all functions
+            var harmony = new Harmony("protube.patch.afterthefall");
+            harmony.PatchAll();
         }
 
         public static void saveChannel(string channelName, string proTubeName)
@@ -36,7 +38,7 @@ namespace Provolver_SuperHot
             if (!File.Exists(fileName)) return "";
             return File.ReadAllText(fileName, Encoding.UTF8);
         }
-
+        
         public static void dualWieldSort()
         {
             ForceTubeVRInterface.FTChannelFile myChannels = JsonConvert.DeserializeObject<ForceTubeVRInterface.FTChannelFile>(ForceTubeVRInterface.ListChannels());
@@ -45,10 +47,10 @@ namespace Provolver_SuperHot
             if ((pistol1.Count > 0) && (pistol2.Count > 0))
             {
                 dualWield = true;
-                MelonLogger.Msg("Two ProTube devices detected, player is dual wielding.");
+                Log?.LogMessage("Two ProTube devices detected, player is dual wielding.");
                 if ((readChannel("rightHand") == "") || (readChannel("leftHand") == ""))
                 {
-                    MelonLogger.Msg("No configuration files found, saving current right and left hand pistols.");
+                    Log?.LogMessage("No configuration files found, saving current right and left hand pistols.");
                     saveChannel("rightHand", pistol1[0].name);
                     saveChannel("leftHand", pistol2[0].name);
                 }
@@ -56,7 +58,7 @@ namespace Provolver_SuperHot
                 {
                     string rightHand = readChannel("rightHand");
                     string leftHand = readChannel("leftHand");
-                    MelonLogger.Msg("Found and loaded configuration. Right hand: " + rightHand + ", Left hand: " + leftHand);
+                    Log?.LogMessage("Found and loaded configuration. Right hand: " + rightHand + ", Left hand: " + leftHand);
                     // Channels 4 and 5 are ForceTubeVRChannel.pistol1 and pistol2
                     ForceTubeVRInterface.ClearChannel(4);
                     ForceTubeVRInterface.ClearChannel(5);
@@ -66,74 +68,76 @@ namespace Provolver_SuperHot
             }
             else
             {
-                MelonLogger.Msg("SINGLE WIELD");
+                Log.LogMessage("SINGLE WIELD");
             }
         }
+
         private async void InitializeProTube()
         {
-            MelonLogger.Msg("Initializing ProTube gear...");
+            Log?.LogMessage("Initializing ProTube gear...");
             await ForceTubeVRInterface.InitAsync(true);
             Thread.Sleep(10000);
             dualWieldSort();
         }
-    }
 
-
-    [HarmonyPatch(typeof(ShootingSystem), "UpdateShootingFor")]
-    public class provolver_ShootingSystem_UpdateShootingFor
-    {
-        [HarmonyPrefix]
-        public static void Prefix(ShootingSystem __instance, VrHandController handController)
+        [HarmonyPatch(typeof(Gun), "FireBullet", new System.Type[] { typeof(bool), typeof(bool) })]
+        public class protube_Fire
         {
-            if (!__instance.PickupCanShot(handController.CurrentPickup) || !handController.InteractionReady)
-                return;
-            GunPickup pickup = handController.CurrentPickup.GetPickup() as GunPickup;
-
-            if (pickup.Gun.ammoCount == 0 || pickup.Gun is UziGun)
+            [HarmonyPostfix]
+            public static void Postfix(Gun __instance)
             {
-                return;
-            }
-
-            if (VrInputSystem.GetTriggerDown(handController.Controller))
-            {
-                ForceTubeVRChannel myChannel = (handController.Controller == Controller.RightController)
+                if (!__instance.IsEquippedLocally)
+                {
+                    return;
+                }
+                
+                bool isRight = (__instance.MainHandSide == Vertigo.VR.EHandSide.Right);
+                ForceTubeVRChannel myChannel = (isRight)
                     ?
-                    (SuperhotVR_Provolver.leftHanded && !SuperhotVR_Provolver.dualWield) ?
-                        ForceTubeVRChannel.pistol2 : ForceTubeVRChannel.pistol1
+                    ForceTubeVRChannel.pistol1
                     :
-                    (SuperhotVR_Provolver.leftHanded && !SuperhotVR_Provolver.dualWield) ?
-                        ForceTubeVRChannel.pistol1 : ForceTubeVRChannel.pistol2;
+                    ForceTubeVRChannel.pistol2;
 
-                if (pickup.Gun is ShotGun)
-                    ForceTubeVRInterface.Shoot(255, 210, 50f, myChannel);
-                if (pickup.Gun is PistolGun)
-                    ForceTubeVRInterface.Kick(255, myChannel);
-            }
-        }
-    }
-
-    [HarmonyPatch(typeof(UziGun), "ShootUziBullets")]
-    public class provolver_UziGun_ShootUziBullets
-    {
-        [HarmonyPrefix]
-        public static void Prefix(UziGun __instance)
-        {
-            VrHandController hand = __instance.gameObject.GetComponentInParent<VrHandController>();
-            if (hand)
-            {
-                if (hand.Controller == Controller.LeftController)
+                byte kickPower = 210;
+                switch (__instance.GunData.Name)
                 {
-                    ForceTubeVRInterface.Kick(210,
-                        (SuperhotVR_Provolver.leftHanded && !SuperhotVR_Provolver.dualWield)
-                        ? ForceTubeVRChannel.pistol1 : ForceTubeVRChannel.pistol2);
+                    case "Pump Shotgun":
+                        ForceTubeVRInterface.Shoot(220, 200, 100f, myChannel);
+                        return;
+                    case "Auto-Shotgun":
+                        ForceTubeVRInterface.Shoot(220, 200, 100f, myChannel);
+                        return;
+                    case "MT-47":
+                        kickPower = 200;
+                        break;
+                    case "Tommy Gun":
+                        kickPower = 200;
+                        break;
+                    case "Arizona Falcon":
+                        kickPower = 230;
+                        break;
+                    case "SMG":
+                        kickPower = 200;
+                        break;
+                    case "LMG":
+                        kickPower = 220;
+                        break;
+                    case "Revolver":
+                        kickPower = 230;
+                        break;
+                    case "Service Pistol":
+                        kickPower = 200;
+                        break;
+                    case "Assault Carbine":
+                        kickPower = 200;
+                        break;
+                    default:
+                        kickPower = 210;
+                        break;
                 }
-                if (hand.Controller == Controller.RightController)
-                {
-                    ForceTubeVRInterface.Kick(210,
-                        (SuperhotVR_Provolver.leftHanded && !SuperhotVR_Provolver.dualWield)
-                        ? ForceTubeVRChannel.pistol2 : ForceTubeVRChannel.pistol1);
-                }
+                ForceTubeVRInterface.Kick(kickPower, myChannel);
             }
         }
     }
 }
+
