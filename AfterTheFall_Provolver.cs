@@ -5,6 +5,7 @@ using System.Threading;
 using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
+using Il2CppSystem.Collections.Generic;
 using Newtonsoft.Json;
 using Vertigo.Snowbreed.Client;
 
@@ -90,7 +91,7 @@ namespace AfterTheFall_Provolver
                 {
                     return;
                 }
-                
+
                 bool isRight = (__instance.MainHandSide == Vertigo.VR.EHandSide.Right);
                 ForceTubeVRChannel myChannel = (isRight)
                     ?
@@ -136,6 +137,72 @@ namespace AfterTheFall_Provolver
                         break;
                 }
                 ForceTubeVRInterface.Kick(kickPower, myChannel);
+            }
+        }
+
+        [HarmonyPatch(typeof(GunAmmoInserter), "HandleAmmoInsertedEvent")]
+        public class protube_Reloading
+        {
+            [HarmonyPostfix]
+            public static void Postfix(GunAmmoInserter __instance)
+            {
+                if (!__instance.gun.IsEquippedLocally)
+                {
+                    return;
+                }
+
+                bool isRight = (__instance.gun.MainHandSide == Vertigo.VR.EHandSide.Right);
+                ForceTubeVRChannel myChannel = (isRight)
+                    ?
+                    ForceTubeVRChannel.pistol1
+                    :
+                    ForceTubeVRChannel.pistol2;
+
+                ForceTubeVRInterface.Rumble(126, 20f, myChannel);
+            }
+        }
+        
+        [HarmonyPatch(typeof(GunAmmoInserter), "HandleMagInserterHandleFullyInsertedEvent")]
+        public class protube_Reloaded
+        {
+            [HarmonyPostfix]
+            public static void Postfix(GunAmmoInserter __instance)
+            {
+                if (!__instance.gun.IsEquippedLocally)
+                {
+                    return;
+                }
+
+                bool isRight = (__instance.gun.MainHandSide == Vertigo.VR.EHandSide.Right);
+                ForceTubeVRChannel myChannel = (isRight)
+                    ?
+                    ForceTubeVRChannel.pistol1
+                    :
+                    ForceTubeVRChannel.pistol2;
+
+                ForceTubeVRInterface.Rumble(180, 20f, myChannel);
+            }
+        }
+        
+        [HarmonyPatch(typeof(Gun), "OnMagazineEjected")]
+        public class protube_EjectMagazine
+        {
+            [HarmonyPostfix]
+            public static void Postfix(Gun __instance)
+            {
+                if (!__instance.IsEquippedLocally)
+                {
+                    return;
+                }
+
+                bool isRight = (__instance.MainHandSide == Vertigo.VR.EHandSide.Right);
+                ForceTubeVRChannel myChannel = (isRight)
+                    ?
+                    ForceTubeVRChannel.pistol1
+                    :
+                    ForceTubeVRChannel.pistol2;
+
+                ForceTubeVRInterface.Rumble(126, 20f, myChannel);
             }
         }
     }
