@@ -10,6 +10,9 @@ If you have any questions or comments, ping me (Astien) in the Protube Discord:
 
 [https://discord.com/invite/kAsGHs2](https://discord.com/invite/kAsGHs2)
 
+
+☕ If you wanna show some support you can buy me a coffee : https://www.buymeacoffee.com/astienth4
+
 ## Manual installation
 
 Two ways to install :
